@@ -1,0 +1,443 @@
+name: TikTok Follower Extractor CI/CD
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      run_extractor:
+        description: 'Run TikTok follower extractor'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x, 20.x]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run syntax check
+      run: node -c index.js
+      
+    - name: Validate package.json
+      run: npm ls --depth=0
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event.inputs.run_extractor == 'true'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Install Chrome dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          google-chrome-stable \
+          fonts-liberation \
+          libappindicator3-1 \
+          libasound2 \
+          libatk-bridge2.0-0 \
+          libatk1.0-0 \
+          libc6 \
+          libcairo2 \
+          libcups2 \
+          libdbus-1-3 \
+          libexpat1 \
+          libfontconfig1 \
+          libgbm1 \
+          libgcc1 \
+          libglib2.0-0 \
+          libgtk-3-0 \
+          libnspr4 \
+          libnss3 \
+          libpango-1.0-0 \
+          libpangocairo-1.0-0 \
+          libstdc++6 \
+          libx11-6 \
+          libx11-xcb1 \
+          libxcb1 \
+          libxcomposite1 \
+          libxcursor1 \
+          libxdamage1 \
+          libxext6 \
+          libxfixes3 \
+          libxi6 \
+          libxrandr2 \
+          libxrender1 \
+          libxss1 \
+          libxtst6 \
+          lsb-release \
+          wget \
+          xdg-utils
+          
+    - name: Create output directory
+      run: mkdir -p output
+      
+    - name: Run TikTok Extractor (Headless Mode for GitHub)
+      env:
+        CI: true
+        HEADLESS: true
+      run: |
+        # Create a headless version for CI/CD
+        cat > index-ci.js << 'EOF'
+        const puppeteer = require('puppeteer');
+        const fs = require('fs-extra');
+        const path = require('path');
+
+        class TikTokExtractorCI {
+            constructor() {
+                this.browser = null;
+                this.page = null;
+                this.outputDir = path.join(__dirname, 'output');
+                this.credentials = {
+                    username: process.env.TIKTOK_USERNAME || 'dinticxxx',
+                    password: process.env.TIKTOK_PASSWORD || 'Razer!1369'
+                };
+                this.delays = {
+                    short: 1000,
+                    medium: 3000,
+                    long: 5000
+                };
+            }
+
+            async init() {
+                console.log('🚀 Initializing TikTok Extractor for CI/CD...');
+                
+                await fs.ensureDir(this.outputDir);
+                
+                this.browser = await puppeteer.launch({
+                    headless: process.env.HEADLESS !== 'false',
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-accelerated-2d-canvas',
+                        '--no-first-run',
+                        '--no-zygote',
+                        '--single-process',
+                        '--disable-gpu',
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor'
+                    ]
+                });
+
+                this.page = await this.browser.newPage();
+                await this.page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                
+                console.log('✅ Browser launched successfully for CI/CD');
+            }
+
+            async checkLoginStatus() {
+                try {
+                    await this.page.waitForTimeout(this.delays.short);
+                    const isLoggedIn = await this.page.evaluate(() => {
+                        const profileButton = document.querySelector('[data-e2e="profile-icon"]');
+                        const loginButton = document.querySelector('[data-e2e="login-button"]');
+                        return !!profileButton && !loginButton;
+                    });
+                    return isLoggedIn;
+                } catch (error) {
+                    console.log('❌ Error checking login status:', error.message);
+                    return false;
+                }
+            }
+
+            async login() {
+                console.log('🔐 Starting CI/CD login process...');
+                
+                try {
+                    await this.page.goto('https://www.tiktok.com/login', { waitUntil: 'networkidle2' });
+                    await this.page.waitForTimeout(this.delays.medium);
+
+                    await this.page.click('[data-e2e="channel-item-2"]');
+                    await this.page.waitForTimeout(this.delays.short);
+
+                    await this.page.type('input[placeholder*="username" i], input[placeholder*="phone" i], input[type="text"]', 
+                        this.credentials.username, { delay: 100 });
+                    
+                    await this.page.waitForTimeout(this.delays.short);
+
+                    const passwordInputs = await this.page.$$('input[type="password"]');
+                    if (passwordInputs.length > 0) {
+                        await passwordInputs[0].type(this.credentials.password, { delay: 100 });
+                    }
+
+                    await this.page.waitForTimeout(this.delays.short);
+
+                    const loginButton = await this.page.$('[data-e2e="login-button"], button[type="submit"]');
+                    if (loginButton) {
+                        await loginButton.click();
+                        await this.page.waitForTimeout(this.delays.long);
+                    }
+
+                    const isLoggedIn = await this.checkLoginStatus();
+                    
+                    if (isLoggedIn) {
+                        console.log('✅ CI/CD Login successful!');
+                        return true;
+                    } else {
+                        console.log('❌ CI/CD Login failed!');
+                        return false;
+                    }
+
+                } catch (error) {
+                    console.log('❌ CI/CD Login error:', error.message);
+                    return false;
+                }
+            }
+
+            async extractFollowers(username) {
+                console.log(`🎯 Extracting followers for @${username} in CI/CD...`);
+                
+                try {
+                    const profileUrl = `https://www.tiktok.com/@${username}`;
+                    await this.page.goto(profileUrl, { waitUntil: 'networkidle2' });
+                    await this.page.waitForTimeout(this.delays.medium);
+
+                    const profileExists = await this.page.evaluate(() => {
+                        const notFound = document.querySelector('[data-e2e="error-page"]');
+                        return !notFound;
+                    });
+
+                    if (!profileExists) {
+                        console.log(`❌ Profile @${username} not found!`);
+                        return [];
+                    }
+
+                    const followersButton = await this.page.$('[data-e2e="followers-count"]');
+                    
+                    if (!followersButton) {
+                        console.log(`❌ Could not find followers button for @${username}!`);
+                        return [];
+                    }
+
+                    await followersButton.click();
+                    await this.page.waitForTimeout(this.delays.medium);
+
+                    await this.page.waitForSelector('[data-e2e="user-list"]', { timeout: 10000 });
+
+                    console.log('📋 Followers modal opened in CI/CD, starting extraction...');
+
+                    const followers = await this.scrapeFollowersFromModal();
+
+                    if (followers.length === 0) {
+                        console.log('❌ No real followers found in CI/CD!');
+                        throw new Error('No real followers found in CI/CD');
+                    }
+
+                    console.log(`✅ Successfully extracted ${followers.length} real followers in CI/CD!`);
+                    return followers;
+
+                } catch (error) {
+                    console.log('❌ Error extracting followers in CI/CD:', error.message);
+                    throw error;
+                }
+            }
+
+            async scrapeFollowersFromModal() {
+                const followers = new Set();
+                let previousCount = 0;
+                let scrollAttempts = 0;
+                const maxScrollAttempts = 30;
+
+                console.log('🔄 Starting to scrape followers from modal in CI/CD...');
+
+                while (scrollAttempts < maxScrollAttempts) {
+                    try {
+                        const currentFollowers = await this.page.evaluate(() => {
+                            const userElements = document.querySelectorAll('[data-e2e="user-list-item"]');
+                            const usernames = [];
+                            
+                            userElements.forEach(element => {
+                                const usernameElement = element.querySelector('a');
+                                if (usernameElement) {
+                                    const href = usernameElement.getAttribute('href');
+                                    if (href && href.includes('/@')) {
+                                        const username = href.split('/@')[1].split('?')[0];
+                                        if (username && username !== '') {
+                                            usernames.push('@' + username);
+                                        }
+                                    }
+                                }
+                            });
+                            
+                            return usernames;
+                        });
+
+                        currentFollowers.forEach(follower => followers.add(follower));
+
+                        if (followers.size === previousCount) {
+                            scrollAttempts++;
+                            console.log(`📊 No new followers found in CI/CD, attempt ${scrollAttempts}/${maxScrollAttempts}`);
+                        } else {
+                            scrollAttempts = 0;
+                            previousCount = followers.size;
+                            console.log(`📈 Found ${followers.size} followers so far in CI/CD...`);
+                        }
+
+                        await this.page.evaluate(() => {
+                            const modal = document.querySelector('[data-e2e="user-list"]');
+                            if (modal) {
+                                modal.scrollTop = modal.scrollHeight;
+                            }
+                        });
+
+                        await this.page.waitForTimeout(this.delays.short);
+
+                    } catch (error) {
+                        console.log('⚠️ Error during scrolling in CI/CD:', error.message);
+                        break;
+                    }
+                }
+
+                const followerArray = Array.from(followers);
+                console.log(`🏁 CI/CD Extraction complete! Total real followers: ${followerArray.length}`);
+                
+                return followerArray;
+            }
+
+            async saveResults(username, followers) {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `tiktok_followers_${username}_${timestamp}.txt`;
+                const filepath = path.join(this.outputDir, filename);
+
+                const content = `TikTok Followers for @${username}
+Extraction Method: ChromeDriver (CI/CD)
+Extraction Date: ${new Date().toISOString()}
+Total Followers: ${followers.length}
+Authentication: Yes
+Environment: GitHub Actions
+
+EXTRACTION DETAILS:
+
+Method: ChromeDriver
+Session: Authenticated
+Browser: ChromeDriver (Headless for CI/CD)
+Quality: Real Data Only
+Platform: GitHub Actions
+
+FOLLOWER LIST:
+${followers.join('\n')}
+`;
+
+                await fs.writeFile(filepath, content, 'utf8');
+                console.log(`💾 CI/CD Results saved to: ${filename}`);
+                
+                return filepath;
+            }
+
+            async run() {
+                try {
+                    await this.init();
+
+                    const loginSuccess = await this.login();
+                    if (!loginSuccess) {
+                        throw new Error('CI/CD Login failed');
+                    }
+
+                    const targetFile = path.join(__dirname, 'target.txt');
+                    const targetAccounts = await fs.readFile(targetFile, 'utf8');
+                    const usernames = targetAccounts.split('\n').map(u => u.trim()).filter(u => u !== '');
+
+                    console.log(`🎯 Found ${usernames.length} target accounts in CI/CD`);
+
+                    for (const username of usernames) {
+                        try {
+                            console.log(`\n🚀 Processing @${username} in CI/CD...`);
+                            
+                            const followers = await this.extractFollowers(username);
+                            
+                            if (followers.length > 0) {
+                                await this.saveResults(username, followers);
+                                console.log(`✅ Successfully processed @${username} in CI/CD`);
+                            } else {
+                                console.log(`❌ No followers found for @${username} in CI/CD`);
+                            }
+
+                            if (usernames.indexOf(username) < usernames.length - 1) {
+                                console.log('⏳ Waiting before next account in CI/CD...');
+                                await this.page.waitForTimeout(this.delays.long);
+                            }
+
+                        } catch (error) {
+                            console.log(`❌ Error processing @${username} in CI/CD:`, error.message);
+                        }
+                    }
+
+                } catch (error) {
+                    console.log('❌ Fatal error in CI/CD:', error.message);
+                    throw error;
+                } finally {
+                    if (this.browser) {
+                        await this.browser.close();
+                        console.log('🔚 CI/CD Browser closed');
+                    }
+                }
+            }
+        }
+
+        async function main() {
+            const extractor = new TikTokExtractorCI();
+            await extractor.run();
+        }
+
+        main().catch(error => {
+            console.log('❌ CI/CD Application failed:', error);
+            process.exit(1);
+        });
+        EOF
+        
+        # Run the CI version
+        node index-ci.js
+        
+    - name: Upload results as artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: tiktok-followers-results
+        path: output/
+        retention-days: 30
+        
+    - name: Create summary
+      if: always()
+      run: |
+        echo "## TikTok Follower Extractor Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ -d "output" ]; then
+          echo "### 📁 Generated Files:" >> $GITHUB_STEP_SUMMARY
+          ls -la output/ >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Files are available as artifacts in this workflow run." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ No output files generated." >> $GITHUB_STEP_SUMMARY
+        fi
